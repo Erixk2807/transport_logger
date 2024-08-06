@@ -1,95 +1,23 @@
-#include <stdio.h>
-#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
-#include "esp_log.h"
 #include "esp_spiffs.h"
 #include <sys/unistd.h>
 #include <sys/stat.h>
 #include "esp_err.h"
-#include <float.h>
+#include "utils.h"
 
-#define ECHO_TEST_TXD (GPIO_NUM_15)
-#define ECHO_TEST_RXD (GPIO_NUM_16)
-#define ECHO_TEST_RTS (UART_PIN_NO_CHANGE)
-#define ECHO_TEST_CTS (UART_PIN_NO_CHANGE)
-
-#define ECHO_UART_PORT_NUM (UART_NUM_1)
-#define ECHO_UART_BAUD_RATE (115200)
-#define ECHO_TASK_STACK_SIZE (4096)
-
-static const char *TAG = "DIAP SLAVE";
-
-#define BUF_SIZE (511)
-#define ARRAY_SIZE 10
-#define ERROR_MESSAGE "NO DATA"
-#define UNSUPPORTED_FEATURE "UNSUPPORTED FEATURE"
-#define HEADER "DIAP000"
-
-// Define a structure to hold low, high, and average values
-typedef struct {
-    float low;
-    float avg;
-    float high;
-} Stats;
-
-// Define a structure to hold the stats for temperature, pressure, and humidity
-typedef struct {
-    Stats *temperature;
-    Stats *pressure;
-    Stats *humidity;
-} SensorStats;
-
-SensorStats statsArray;
-
-SensorStats statsArray;
-int statsCount;
-
-// Function to count the number of lines in the file
-int count_lines(FILE* file) {
-    int lines = 0;
-    char ch;
-    while(!feof(file)) {
-        ch = fgetc(file);
-        if(ch == '\n') {
-            lines++;
-        }
-    }
-    rewind(file); // Reset file pointer to the beginning of the file
-    return lines;
-}
-
+Stats *temperature;
+Stats *pressure;
+Stats *humidity;
+int dataSize;
 
 void send_response(const char *response, int uart_num) {
     char full_response[BUF_SIZE];
     snprintf(full_response, sizeof(full_response), "%s%04X\n", response, 0xFFFF); // Placeholder CRC
-    printf("RESPONSE BEFORE IT IS SENT: %s\n", full_response);
+    ESP_LOGI(TAG, "RESPONSE BEFORE IT IS SENT: %s\n", full_response);
     uart_write_bytes(uart_num, full_response, strlen(full_response));
-}
-
-void handle_array_command(const char *command, const char *array_name, int *array, int *array_length, char *response, size_t response_size) {
-    if (*array_length > 0) {
-        snprintf(response + strlen(response), response_size - strlen(response), "%s=%d;", array_name, array[0]);
-        memmove(array, array + 1, (*array_length - 1) * sizeof(int));
-        (*array_length)--;
-    } else {
-        snprintf(response + strlen(response), response_size - strlen(response), "%s=%s;", array_name, ERROR_MESSAGE);
-    }
-}
-
-void process_command(char *command, char *response, size_t response_size) {
-    ESP_LOGI(TAG, "process_command %s", command);
-    // if (strcmp(command, "t1") == 0) {
-    //     handle_array_command(command, "t1", temperature_array, &temperature_length, response, response_size);
-    // } else if (strcmp(command, "p1") == 0) {
-    //     handle_array_command(command, "p1", pressure_array, &pressure_length, response, response_size);
-    // } else if (strcmp(command, "anesetpercent") == 0) {
-    //     handle_array_command(command, "anesetpercent", humidity_array, &humidity_length, response, response_size);
-    // } else {
-    //     snprintf(response + strlen(response), response_size - strlen(response), "%s;", UNSUPPORTED_FEATURE);
-    // }
 }
 
 void handle_request(char *data) {
@@ -115,6 +43,21 @@ void handle_request(char *data) {
         process_command(command, response, BUF_SIZE);
         command = strtok(NULL, ";");
     }
+
+    // Clean data array
+    // Remove the first value by shifting elements to the left
+    for (int i = 0; i < dataSize - 1; i++) {
+        (temperature)[i] = (temperature)[i + 1];
+        (pressure)[i] = (pressure)[i + 1];
+        (humidity)[i] = (humidity)[i + 1];
+    }
+
+    // Resize the arrays
+    temperature = (Stats*)realloc(temperature, (dataSize - 1) * sizeof(Stats));
+    pressure = (Stats*)realloc(pressure, (dataSize - 1) * sizeof(Stats));
+    humidity = (Stats*)realloc(humidity, (dataSize - 1) * sizeof(Stats));
+
+    dataSize--;
 
     strcat(response, ">");
     send_response(response, ECHO_UART_PORT_NUM);
@@ -150,8 +93,7 @@ static void echo_task(void *arg) {
     }
 }
 
-
-static void initi_buffer(void)
+static void read_data_from_csv(void)
 {
     ESP_LOGI(TAG, "Initializing SPIFFS");
 
@@ -208,11 +150,11 @@ static void initi_buffer(void)
     int stats_size = (line_count - 1) / 3; // -1 to skip the header line
 
     // Dynamically allocate memory for the stats arrays
-    statsArray.temperature = (Stats *)malloc(stats_size * sizeof(Stats));
-    statsArray.pressure = (Stats *)malloc(stats_size * sizeof(Stats));
-    statsArray.humidity = (Stats *)malloc(stats_size * sizeof(Stats));
+    temperature = (Stats *)malloc(stats_size * sizeof(Stats));
+    pressure = (Stats *)malloc(stats_size * sizeof(Stats));
+    humidity = (Stats *)malloc(stats_size * sizeof(Stats));
 
-    if (statsArray.temperature == NULL || statsArray.pressure == NULL || statsArray.humidity == NULL) {
+    if (temperature == NULL || pressure == NULL || humidity == NULL) {
         ESP_LOGI(TAG, "Error: Memory allocation failed");
         fclose(f);
         return;
@@ -223,58 +165,65 @@ static void initi_buffer(void)
     // Skip the header buffer
     fgets(buffer, sizeof(buffer), f);
 
-    float temp_low = FLT_MAX, temp_high = FLT_MIN, temp_sum = 0;
-    float press_low = FLT_MAX, press_high = FLT_MIN, press_sum = 0;
-    float hum_low = FLT_MAX, hum_high = FLT_MIN, hum_sum = 0;
+    // Initialize min, max, and sum variables for temperature, pressure, and humidity
+    int temp_low = INT_MAX, temp_high = INT_MIN, temp_sum = 0;
+    int press_low = INT_MAX, press_high = INT_MIN, press_sum = 0;
+    int hum_low = INT_MAX, hum_high = INT_MIN, hum_sum = 0;
     int count = 0;
 
-    while(fgets(buffer, sizeof(buffer), f)) {
-        float temperature, pressure, humidity;
- 
+    // Read lines from the file
+    while (fgets(buffer, sizeof(buffer), f)) {
+        int t, p, h;
+
+        // Parse temperature
         data = strtok(buffer, ",");
-        temperature = atof(data);
+        t = atoi(data);
 
+        // Parse pressure
         data = strtok(NULL, ",");
-        pressure = atof(data);
+        p = atoi(data);
 
+        // Parse humidity
         data = strtok(NULL, ",");
-        humidity = atof(data);
+        h = atoi(data);
 
-        if (temperature < temp_low) temp_low = temperature;
-        if (temperature > temp_high) temp_high = temperature;
-        temp_sum += temperature;
+        // Update temperature stats
+        if (t < temp_low) temp_low = t;
+        if (t > temp_high) temp_high = t;
+        temp_sum += t;
 
-        if (pressure < press_low) press_low = pressure;
-        if (pressure > press_high) press_high = pressure;
-        press_sum += pressure;
+        // Update pressure stats
+        if (p < press_low) press_low = p;
+        if (p > press_high) press_high = p;
+        press_sum += p;
 
-        if (humidity < hum_low) hum_low = humidity;
-        if (humidity > hum_high) hum_high = humidity;
-        hum_sum += humidity;
+        // Update humidity stats
+        if (h < hum_low) hum_low = h;
+        if (h > hum_high) hum_high = h;
+        hum_sum += h;
 
         count++;
- 
+
         // Every three data inputs, calculate stats and add to array
         if (count % 3 == 0) {
-            SensorStats stats;
-            statsArray.temperature[statsCount].low = temp_low;
-            statsArray.temperature[statsCount].high = temp_high;
-            statsArray.temperature[statsCount].avg = temp_sum / 3;
-            
-            statsArray.pressure[statsCount].low = press_low;
-            statsArray.pressure[statsCount].high = press_high;
-            statsArray.pressure[statsCount].avg = press_sum / 3;
-            
-            statsArray.humidity[statsCount].low = hum_low;
-            statsArray.humidity[statsCount].high = hum_high;
-            statsArray.humidity[statsCount].avg = hum_sum / 3;
+            temperature[dataSize].low = temp_low;
+            temperature[dataSize].high = temp_high;
+            temperature[dataSize].avg = temp_sum / 3;
 
-            statsCount++;
+            pressure[dataSize].low = press_low;
+            pressure[dataSize].high = press_high;
+            pressure[dataSize].avg = press_sum / 3;
+
+            humidity[dataSize].low = hum_low;
+            humidity[dataSize].high = hum_high;
+            humidity[dataSize].avg = hum_sum / 3;
+
+            dataSize++;
 
             // Reset for next three entries
-            temp_low = FLT_MAX; temp_high = FLT_MIN; temp_sum = 0;
-            press_low = FLT_MAX; press_high = FLT_MIN; press_sum = 0;
-            hum_low = FLT_MAX; hum_high = FLT_MIN; hum_sum = 0;
+            temp_low = INT_MAX; temp_high = INT_MIN; temp_sum = 0;
+            press_low = INT_MAX; press_high = INT_MIN; press_sum = 0;
+            hum_low = INT_MAX; hum_high = INT_MIN; hum_sum = 0;
         }
     }
 
@@ -285,20 +234,21 @@ static void initi_buffer(void)
 }
 
 void app_main(void) {
-    initi_buffer();
+
+    read_data_from_csv();
 
     xTaskCreate(echo_task, "uart_echo_task", ECHO_TASK_STACK_SIZE, NULL, 10, NULL);
 
-    for (int i = 0; i < statsCount; i++) {
-        printf("{'low': %.2f, 'avg': %.2f, 'high': %.2f}, {'low': %.2f, 'avg': %.2f, 'high': %.2f}, {'low': %.2f, 'avg': %.2f, 'high': %.2f}\n",
-               statsArray.temperature[i].low, statsArray.temperature[i].avg, statsArray.temperature[i].high,
-               statsArray.pressure[i].low, statsArray.pressure[i].avg, statsArray.pressure[i].high,
-               statsArray.humidity[i].low, statsArray.humidity[i].avg, statsArray.humidity[i].high);
-    }
+    // for (int i = 0; i < dataSize; i++) {
+    //     printf("{'low': %d, 'avg': %d, 'high': %d}, {'low': %d, 'avg': %d, 'high': %d}, {'low': %d, 'avg': %d, 'high': %d}\n",
+    //            temperature[i].low, temperature[i].avg, temperature[i].high,
+    //            pressure[i].low, pressure[i].avg, pressure[i].high,
+    //            humidity[i].low, humidity[i].avg, humidity[i].high);
+    // }
 
     // All done, unmount partition and disable SPIFFS
     // Free allocated memory
-    free(statsArray.temperature);
-    free(statsArray.pressure);
-    free(statsArray.humidity);
+    // free(temperature);
+    // free(pressure);
+    // free(humidity);
 }
