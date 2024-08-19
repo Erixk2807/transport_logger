@@ -1,4 +1,9 @@
-#include "read_data.h"
+#include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "esp_spiffs.h"
+#include "sys/stat.h"
+#include "esp_log.h"
+#include "globals.h"
 
 // Function to count the number of lines in the file
 static int count_lines(FILE* file) {
@@ -53,7 +58,8 @@ void read_data_from_csv(void)
     // Check if destination file exists before renaming
     struct stat st;
     if (stat("/spiffs/data.csv", &st) != 0) {
-        ESP_LOGE(TAG, "Fail does not exists");
+        ESP_LOGE(TAG, "File does not exist");
+        return;
     }
 
     ESP_LOGI(TAG, "Opening file");
@@ -96,17 +102,19 @@ void read_data_from_csv(void)
     while (fgets(buffer, sizeof(buffer), f)) {
         int t, p, h;
 
+        // Multiply the result by 10
+
         // Parse temperature
         data = strtok(buffer, ",");
-        t = atoi(data);
+        t = (int)(atof(data) * 10);
 
         // Parse pressure
         data = strtok(NULL, ",");
-        p = atoi(data);
+        p = (int)(atof(data) * 10);
 
         // Parse humidity
         data = strtok(NULL, ",");
-        h = atoi(data);
+        h = (int)(atof(data) * 10);
 
         // Update temperature stats
         if (t < temp_low) temp_low = t;

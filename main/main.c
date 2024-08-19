@@ -1,11 +1,6 @@
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "driver/uart.h"
-#include "driver/gpio.h"
-#include "esp_spiffs.h"
-#include "sys/unistd.h"
-#include "sys/stat.h"
-#include "esp_err.h"
+
+#include <string.h>
+#include "esp_log.h"
 #include "handle_command.h"
 #include "crc.h"
 #include "read_data.h"
@@ -14,82 +9,124 @@
 void send_response(const char *response, int uart_num) {
     char full_response[BUF_SIZE];
     snprintf(full_response, sizeof(full_response), HEADER "<%s>%04X\n", response, generate_crc_value(0x0, strlen(response), response));
-    ESP_LOGI(TAG, "RESPONSE BEFORE IT IS SENT: %s\n", full_response);
+    ESP_LOGI(TAG, "DEVICE RESPONSE: %s\n", full_response);
     uart_write_bytes(uart_num, full_response, strlen(full_response));
+}
+
+void handle_error_response(char *response, size_t response_size, const char *error_message) {
+    // Format the error message into the response buffer
+    snprintf(response, response_size, "%s", error_message);
+    send_response(response, ECHO_UART_PORT_NUM);
 }
 
 void handle_request(char *data) {
     char response[BUF_SIZE] = "";
 
+    ESP_LOGI(TAG, "REQUEST RECEIVED: %s", data);
+
     // Check header
     if (strncmp(data, HEADER, strlen(HEADER)) != 0) {
-        snprintf(response, sizeof(response), "BAD MSG HEADER");
-        send_response(response, ECHO_UART_PORT_NUM);
+        ESP_LOGE(TAG, "Expected HEADER: %s, but received: %s", HEADER, data);
+        handle_error_response(response, sizeof(response), "BAD MSG HEADER");
         return;
     }
 
-    // Extract and process commands
-    char *command_start = strchr(data, '<') + 1;
+    // Check for line feed character
+    if (strchr(data, '\n') == NULL && strchr(data, '\r') == NULL) {
+        ESP_LOGE(TAG, "No line feed character found in data: %s", data);
+        handle_error_response(response, sizeof(response), "NO LINE FEED");
+        return;
+    }
+
+    char *command_start = strchr(data, '<');
     if (command_start == NULL) {
-        snprintf(response, sizeof(response), "NO OPEN DELIMITER");
-        send_response(response, ECHO_UART_PORT_NUM);
+        ESP_LOGE(TAG, "No open delimiter '<' found in data: %s", data);
+        handle_error_response(response, sizeof(response), "NO OPEN DELIMITER");
         return;
     }
 
+    command_start++; // Move past '<'
     char *command_end = strchr(command_start, '>');
     if (command_end == NULL) {
-        snprintf(response, sizeof(response), "NO CLOSE DELIMITER");
-        send_response(response, ECHO_UART_PORT_NUM);
+        ESP_LOGE(TAG, "NO CLOSE DELIMITER: Expected '>', but not found in string: %s", command_start);
+        handle_error_response(response, sizeof(response), "NO CLOSE DELIMITER");
         return;
     }
-
 
     // Calculate the length of the command
     size_t command_length = command_end - command_start;
 
     if (command_length > MAX_COMMAND_SIZE) {
-        snprintf(response, sizeof(response), "COMMAND TOO LARGE");
-        send_response(response, ECHO_UART_PORT_NUM); 
+        ESP_LOGE(TAG, "COMMAND TOO LARGE: Command length %zu exceeds maximum allowed size of %d", command_length, MAX_COMMAND_SIZE); 
+        handle_error_response(response, sizeof(response), "COMMAND TOO LARGE");
         return;
     }
-
 
     *command_end = '\0'; // Null-terminate the commands part
 
     // Extract the CRC string after '>'
     char *crc_start = command_end + 1; // Point to the character after '>'
-    // Convert CRC string to an integer using strtol with base 16
+
+    if (!isHexadecimal(crc_start)) {
+        ESP_LOGE(TAG, "INVALID CRC CHAR: Received CRC contains non-hexadecimal characters: 0x%s", crc_start);
+        handle_error_response(response, sizeof(response), "INVALID CRC CHAR");
+        return;
+    }
+
     unsigned short received_crc = (unsigned short)strtol(crc_start, NULL, 16);
+
     unsigned short calculated_crc = generate_crc_value(0x0, strlen(command_start), command_start);
 
     // Check if the response is corrupt
     if (received_crc != calculated_crc) {
         ESP_LOGE(TAG, "Fail CRC check: received: %04X, calculated:%04X", received_crc, calculated_crc);
-        snprintf(response, sizeof(response), "REQUEST CORRUPT");
-        send_response(response, ECHO_UART_PORT_NUM);
+        handle_error_response(response, sizeof(response), "REQUEST CORRUPT");
         return;
     }    
 
     char *command = strtok(command_start, ";");
     while (command != NULL) {
+        // Calculate the length of the response
+        size_t response_size = strlen(response) * sizeof(char);
+
+        // Check if the combined length exceeds the allowed buffer size
+        if (response_size + LARGEST_POSSIBLE_COMMAND >= BUF_SIZE) {
+            ESP_LOGE(TAG, "RESPONSE TOO LARGE: Response size %zu exceeds buffer size of %d", response_size + LARGEST_POSSIBLE_COMMAND, BUF_SIZE);
+            // Send an error response and reset the buffer
+            handle_error_response(response, sizeof(response), "RESPONSE TOO LARGE");
+            response[0] = '\0'; // Reset the response buffer
+        }
+
+        // Process the command
         process_command(command, response, BUF_SIZE);
+
+        // Get the next command
         command = strtok(NULL, ";");
     }
 
     // Clean data array
     // Remove the first value by shifting elements to the left
-    for (int i = 0; i < dataSize - 1; i++) {
-        (temperature)[i] = (temperature)[i + 1];
-        (pressure)[i] = (pressure)[i + 1];
-        (humidity)[i] = (humidity)[i + 1];
+    if (dataSize > 0) {
+        for (int i = 0; i < dataSize - 1; i++) {
+            temperature[i] = temperature[i + 1];
+            pressure[i] = pressure[i + 1];
+            humidity[i] = humidity[i + 1];
+        }
+
+        // Resize the arrays
+        temperature = (Stats*)realloc(temperature, (dataSize - 1) * sizeof(Stats));
+        pressure = (Stats*)realloc(pressure, (dataSize - 1) * sizeof(Stats));
+        humidity = (Stats*)realloc(humidity, (dataSize - 1) * sizeof(Stats));
+
+        dataSize--;
     }
 
-    // Resize the arrays
-    temperature = (Stats*)realloc(temperature, (dataSize - 1) * sizeof(Stats));
-    pressure = (Stats*)realloc(pressure, (dataSize - 1) * sizeof(Stats));
-    humidity = (Stats*)realloc(humidity, (dataSize - 1) * sizeof(Stats));
-
-    dataSize--;
+    // Check if the message is just a newline or contains only whitespace characters
+    if (response[0] == '\n' || strlen(response) == 0 || strcmp(response, "\n") == 0) {
+        ESP_LOGE(TAG, "UNDEFINED ERROR: Response buffer is empty or contains only a newline character.");
+        handle_error_response(response, sizeof(response), "UNDEFINED ERROR");
+        return;
+    }
 
     send_response(response, ECHO_UART_PORT_NUM);
 }
@@ -122,6 +159,10 @@ static void echo_task(void *arg) {
             handle_request((char *)data);
         }
     }
+    // Free allocated memory
+    free(temperature);
+    free(pressure);
+    free(humidity);
 }
 
 void app_main(void) {
@@ -137,9 +178,4 @@ void app_main(void) {
                humidity[i].low, humidity[i].avg, humidity[i].high);
     }
 
-    // All done, unmount partition and disable SPIFFS
-    // Free allocated memory
-    // free(temperature);
-    // free(pressure);
-    // free(humidity);
 }

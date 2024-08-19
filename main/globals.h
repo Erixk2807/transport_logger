@@ -2,6 +2,8 @@
 #define GLOBALS_H
 
 #include <stdio.h>
+#include "driver/uart.h"
+#include "driver/gpio.h"
 
 // Global tag for logging
 extern const char *TAG;
@@ -18,6 +20,7 @@ extern const char *TAG;
 
 // DIAP limitations
 #define BUF_SIZE (511)
+#define LARGEST_POSSIBLE_COMMAND (22)
 #define MAX_COMMAND_SIZE (255)
 #define ARRAY_SIZE 10
 
@@ -38,4 +41,6 @@ extern Stats *humidity;
 
 extern int dataSize;
 
-#endif // GLOBALS_H
+int isHexadecimal(const char *str);
+
+#endif

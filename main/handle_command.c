@@ -1,5 +1,7 @@
+#include <string.h>
+#include "esp_log.h"
+#include "globals.h"
 #include "handle_command.h"
-
 
 static Stats remove_first_value(Stats **dynamicArray, int *dataSize) {
     if (*dataSize == 0) {
@@ -49,7 +51,7 @@ static void insert_value_into_response(const char *command, Stats removedValue, 
         add_padding(removedValue.high, 3, amended_value);
         snprintf(value_str, sizeof(value_str), "%s", amended_value);
     }
-    // Add a semicolon (;) at the start of the response if the response is empty 
+    // Add a semicolon (;) at the start of the response if the response already has a command 
     snprintf(response + strlen(response), response_size - strlen(response), "%s%s=%s", (strlen(response) == 0) ? "" : ";", command, value_str);
 }
 
