@@ -111,12 +111,18 @@ void handle_request(char *data) {
             temperature[i] = temperature[i + 1];
             pressure[i] = pressure[i + 1];
             humidity[i] = humidity[i + 1];
+            sound[i] = sound[i + 1];
+            light[i] = light[i + 1];
+            vibration[i] = vibration[i + 1];
         }
 
         // Resize the arrays
         temperature = (Stats*)realloc(temperature, (dataSize - 1) * sizeof(Stats));
         pressure = (Stats*)realloc(pressure, (dataSize - 1) * sizeof(Stats));
         humidity = (Stats*)realloc(humidity, (dataSize - 1) * sizeof(Stats));
+        sound = (Stats*)realloc(sound, (dataSize - 1) * sizeof(Stats));
+        light = (Stats*)realloc(light, (dataSize - 1) * sizeof(Stats));
+        vibration = (Stats*)realloc(vibration, (dataSize - 1) * sizeof(Stats));
 
         dataSize--;
     }
@@ -163,6 +169,9 @@ static void echo_task(void *arg) {
     free(temperature);
     free(pressure);
     free(humidity);
+    free(sound);
+    free(light);
+    free(vibration);
 }
 
 void app_main(void) {
@@ -171,11 +180,19 @@ void app_main(void) {
 
     xTaskCreate(echo_task, "uart_echo_task", ECHO_TASK_STACK_SIZE, NULL, 10, NULL);
 
-    for (int i = 0; i < dataSize; i++) {
-        printf("{'low': %d, 'avg': %d, 'high': %d}, {'low': %d, 'avg': %d, 'high': %d}, {'low': %d, 'avg': %d, 'high': %d}\n",
-               temperature[i].low, temperature[i].avg, temperature[i].high,
-               pressure[i].low, pressure[i].avg, pressure[i].high,
-               humidity[i].low, humidity[i].avg, humidity[i].high);
+    for (int i = 0; i < 3; i++) {
+        printf("{'low': %d, 'avg': %d, 'high': %d}, "
+            "{'low': %d, 'avg': %d, 'high': %d}, "
+            "{'low': %d, 'avg': %d, 'high': %d}, "
+            "{'low': %d, 'avg': %d, 'high': %d}, "
+            "{'low': %d, 'avg': %d, 'high': %d}, "
+            "{'low': %d, 'avg': %d, 'high': %d}\n",
+            temperature[i].low, temperature[i].avg, temperature[i].high,
+            pressure[i].low, pressure[i].avg, pressure[i].high,
+            humidity[i].low, humidity[i].avg, humidity[i].high,
+            sound[i].low, sound[i].avg, sound[i].high,
+            light[i].low, light[i].avg, light[i].high,
+            vibration[i].low, vibration[i].avg, vibration[i].high);
     }
 
 }

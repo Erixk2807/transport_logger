@@ -8,9 +8,9 @@ const char *TAG = "DIAP DEVICE";
 Stats *temperature = NULL;
 Stats *pressure = NULL;
 Stats *humidity = NULL;
+Stats *sound = NULL;
 Stats *light = NULL;
 Stats *vibration = NULL;
-Stats *sound = NULL;
 
 int dataSize = 0;
 

@@ -38,6 +38,9 @@ typedef struct {
 extern Stats *temperature;
 extern Stats *pressure;
 extern Stats *humidity;
+extern Stats *sound;
+extern Stats *light;
+extern Stats *vibration;
 
 extern int dataSize;
 

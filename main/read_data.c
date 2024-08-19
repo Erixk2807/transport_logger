@@ -19,6 +19,16 @@ static int count_lines(FILE* file) {
     return lines;
 }
 
+void parse_and_update_values(char* data, int *low, int *high, int *sum) {
+    int value = (int)(atof(data) * 10);
+
+    // Update stats
+    if (value < *low) *low = value;
+    if (value > *high) *high = value;
+    *sum += value;
+}
+
+
 void read_data_from_csv(void)
 {
     ESP_LOGI(TAG, "Initializing SPIFFS");
@@ -80,6 +90,9 @@ void read_data_from_csv(void)
     temperature = (Stats *)malloc(stats_size * sizeof(Stats));
     pressure = (Stats *)malloc(stats_size * sizeof(Stats));
     humidity = (Stats *)malloc(stats_size * sizeof(Stats));
+    sound = (Stats *)malloc(stats_size * sizeof(Stats));
+    light = (Stats *)malloc(stats_size * sizeof(Stats));
+    vibration = (Stats *)malloc(stats_size * sizeof(Stats));
 
     if (temperature == NULL || pressure == NULL || humidity == NULL) {
         ESP_LOGI(TAG, "Error: Memory allocation failed");
@@ -96,40 +109,38 @@ void read_data_from_csv(void)
     int temp_low = INT_MAX, temp_high = INT_MIN, temp_sum = 0;
     int press_low = INT_MAX, press_high = INT_MIN, press_sum = 0;
     int hum_low = INT_MAX, hum_high = INT_MIN, hum_sum = 0;
+    int sound_low = INT_MAX, sound_high = INT_MIN, sound_sum = 0;
+    int light_low = INT_MAX, light_high = INT_MIN, light_sum = 0;
+    int vib_low = INT_MAX, vib_high = INT_MIN, vib_sum = 0;
+    
     int count = 0;
 
     // Read lines from the file
     while (fgets(buffer, sizeof(buffer), f)) {
-        int t, p, h;
-
-        // Multiply the result by 10
 
         // Parse temperature
         data = strtok(buffer, ",");
-        t = (int)(atof(data) * 10);
+        parse_and_update_values(data, &temp_low, &temp_high, &temp_sum);
 
         // Parse pressure
         data = strtok(NULL, ",");
-        p = (int)(atof(data) * 10);
+        parse_and_update_values(data, &press_low, &press_high, &press_sum);
 
         // Parse humidity
         data = strtok(NULL, ",");
-        h = (int)(atof(data) * 10);
+        parse_and_update_values(data, &hum_low, &hum_high, &hum_sum);
 
-        // Update temperature stats
-        if (t < temp_low) temp_low = t;
-        if (t > temp_high) temp_high = t;
-        temp_sum += t;
+        // Parse sound
+        data = strtok(NULL, ",");
+        parse_and_update_values(data, &sound_low, &sound_high, &sound_sum);
 
-        // Update pressure stats
-        if (p < press_low) press_low = p;
-        if (p > press_high) press_high = p;
-        press_sum += p;
+        // Parse light
+        data = strtok(NULL, ",");
+        parse_and_update_values(data, &light_low, &light_high, &light_sum);
 
-        // Update humidity stats
-        if (h < hum_low) hum_low = h;
-        if (h > hum_high) hum_high = h;
-        hum_sum += h;
+        // Parse vibration
+        data = strtok(NULL, ",");
+        parse_and_update_values(data, &vib_low, &vib_high, &vib_sum);
 
         count++;
 
@@ -147,12 +158,27 @@ void read_data_from_csv(void)
             humidity[dataSize].high = hum_high;
             humidity[dataSize].avg = hum_sum / 3;
 
+            sound[dataSize].low = sound_low;
+            sound[dataSize].high = sound_high;
+            sound[dataSize].avg = sound_sum / 3;
+
+            light[dataSize].low = light_low;
+            light[dataSize].high = light_high;
+            light[dataSize].avg = light_sum / 3;
+
+            vibration[dataSize].low = vib_low;
+            vibration[dataSize].high = vib_high;
+            vibration[dataSize].avg = vib_sum / 3;
+
             dataSize++;
 
             // Reset for next three entries
             temp_low = INT_MAX; temp_high = INT_MIN; temp_sum = 0;
             press_low = INT_MAX; press_high = INT_MIN; press_sum = 0;
             hum_low = INT_MAX; hum_high = INT_MIN; hum_sum = 0;
+            sound_low = INT_MAX, sound_high = INT_MIN, sound_sum = 0;
+            light_low = INT_MAX, light_high = INT_MIN, light_sum = 0;
+            vib_low = INT_MAX, vib_high = INT_MIN, vib_sum = 0;
         }
     }
 
