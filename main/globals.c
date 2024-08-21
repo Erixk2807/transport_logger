@@ -35,3 +35,22 @@ int isHexadecimal(const char *str) {
 
     return 1; 
 }
+
+// Free allocated memory
+static void free_memory(void **data_memory) {
+    // Check if the pointer is not NULL
+    if (*data_memory != NULL) {
+        free(*data_memory);   // Free the allocated memory
+        *data_memory = NULL;  // Set the pointer to NULL to avoid dangling pointers
+    }
+}
+
+void free_all_memory() {
+    // Free previously allocated memory
+    free_memory((void**)&temperature);
+    free_memory((void**)&pressure);
+    free_memory((void**)&humidity);
+    free_memory((void**)&sound);
+    free_memory((void**)&light);
+    free_memory((void**)&vibration);
+}

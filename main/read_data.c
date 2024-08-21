@@ -19,7 +19,7 @@ static int count_lines(FILE* file) {
     return lines;
 }
 
-void parse_and_update_values(char* data, int *low, int *high, int *sum) {
+static void parse_and_update_values(char* data, int *low, int *high, int *sum) {
     int value = (int)(atof(data) * 10);
 
     // Update stats
@@ -33,15 +33,20 @@ void read_data_from_csv(void)
 {
     ESP_LOGI(TAG, "Initializing SPIFFS");
 
+    // Free previously allocated memory
+    free_all_memory();
+
+    // Reset the dataSize counter
+    dataSize = 0;
+
     esp_vfs_spiffs_conf_t conf = {
-      .base_path = "/spiffs",
-      .partition_label = NULL,
-      .max_files = 5,
-      .format_if_mount_failed = true
+        .base_path = "/spiffs",
+        .partition_label = NULL,
+        .max_files = 5,
+        .format_if_mount_failed = true
     };
 
     // Use settings defined above to initialize and mount SPIFFS filesystem.
-    // Note: esp_vfs_spiffs_register is an all-in-one convenience function.
     esp_err_t ret = esp_vfs_spiffs_register(&conf);
 
     if (ret != ESP_OK) {
@@ -65,7 +70,6 @@ void read_data_from_csv(void)
         ESP_LOGI(TAG, "Partition size: total: %d, used: %d", total, used);
     }
 
-    // Check if destination file exists before renaming
     struct stat st;
     if (stat("/spiffs/data.csv", &st) != 0) {
         ESP_LOGE(TAG, "File does not exist");
@@ -79,10 +83,8 @@ void read_data_from_csv(void)
         return;
     }
 
-    // Open renamed file for reading
     ESP_LOGI(TAG, "Reading file");
 
-     // Count the number of lines in the file
     int line_count = count_lines(f);
     int stats_size = (line_count - 1) / 3; // -1 to skip the header line
 
@@ -94,7 +96,7 @@ void read_data_from_csv(void)
     light = (Stats *)malloc(stats_size * sizeof(Stats));
     vibration = (Stats *)malloc(stats_size * sizeof(Stats));
 
-    if (temperature == NULL || pressure == NULL || humidity == NULL) {
+    if (temperature == NULL || pressure == NULL || humidity == NULL || sound == NULL || light == NULL || vibration == NULL) {
         ESP_LOGI(TAG, "Error: Memory allocation failed");
         fclose(f);
         return;
@@ -117,28 +119,21 @@ void read_data_from_csv(void)
 
     // Read lines from the file
     while (fgets(buffer, sizeof(buffer), f)) {
-
-        // Parse temperature
         data = strtok(buffer, ",");
         parse_and_update_values(data, &temp_low, &temp_high, &temp_sum);
 
-        // Parse pressure
         data = strtok(NULL, ",");
         parse_and_update_values(data, &press_low, &press_high, &press_sum);
 
-        // Parse humidity
         data = strtok(NULL, ",");
         parse_and_update_values(data, &hum_low, &hum_high, &hum_sum);
 
-        // Parse sound
         data = strtok(NULL, ",");
         parse_and_update_values(data, &sound_low, &sound_high, &sound_sum);
 
-        // Parse light
         data = strtok(NULL, ",");
         parse_and_update_values(data, &light_low, &light_high, &light_sum);
 
-        // Parse vibration
         data = strtok(NULL, ",");
         parse_and_update_values(data, &vib_low, &vib_high, &vib_sum);
 

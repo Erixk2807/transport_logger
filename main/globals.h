@@ -18,6 +18,9 @@ extern const char *TAG;
 #define ECHO_UART_BAUD_RATE (115200)
 #define ECHO_TASK_STACK_SIZE (4096)
 
+// 5 minutes in milliseconds to update data
+#define CHECK_INTERVAL_MS (1 * 60 * 1000)  // 5 minutes in milliseconds
+
 // DIAP limitations
 #define BUF_SIZE (511)
 #define LARGEST_POSSIBLE_COMMAND (22)
@@ -45,5 +48,6 @@ extern Stats *vibration;
 extern int dataSize;
 
 int isHexadecimal(const char *str);
+void free_all_memory();
 
 #endif

@@ -1,10 +1,11 @@
-
 #include <string.h>
 #include "esp_log.h"
 #include "handle_command.h"
 #include "crc.h"
 #include "read_data.h"
 #include "globals.h"
+
+
 
 void send_response(const char *response, int uart_num) {
     char full_response[BUF_SIZE];
@@ -14,8 +15,8 @@ void send_response(const char *response, int uart_num) {
 }
 
 void handle_error_response(char *response, size_t response_size, const char *error_message) {
-    // Format the error message into the response buffer
-    snprintf(response, response_size, "%s", error_message);
+    // Format the error message into the response buffer - % + ERROR MESSAGE
+    snprintf(response, response_size, "%%%s", error_message);
     send_response(response, ECHO_UART_PORT_NUM);
 }
 
@@ -65,7 +66,7 @@ void handle_request(char *data) {
     *command_end = '\0'; // Null-terminate the commands part
 
     // Extract the CRC string after '>'
-    char *crc_start = command_end + 1; // Point to the character after '>'
+    char *crc_start = command_end + 1; // Point to the character after '>' 
 
     if (!isHexadecimal(crc_start)) {
         ESP_LOGE(TAG, "INVALID CRC CHAR: Received CRC contains non-hexadecimal characters: 0x%s", crc_start);
@@ -137,7 +138,7 @@ void handle_request(char *data) {
     send_response(response, ECHO_UART_PORT_NUM);
 }
 
-static void echo_task(void *arg) {
+static void listen_to_request(void *arg) {
     uart_config_t uart_config = {
         .baud_rate = ECHO_UART_BAUD_RATE,
         .data_bits = UART_DATA_8_BITS,
@@ -157,42 +158,46 @@ static void echo_task(void *arg) {
     ESP_ERROR_CHECK(uart_set_pin(ECHO_UART_PORT_NUM, ECHO_TEST_TXD, ECHO_TEST_RXD, ECHO_TEST_RTS, ECHO_TEST_CTS));
 
     uint8_t *data = (uint8_t *) malloc(BUF_SIZE);
+    TickType_t last_check_time = xTaskGetTickCount();
 
     while (1) {
+        // Check if data needs to be reloaded based on the size or every 5 minutes
+        if (dataSize == 0 || (xTaskGetTickCount() - last_check_time) > (CHECK_INTERVAL_MS / portTICK_PERIOD_MS)) {
+            ESP_LOGI(TAG, "Loading data from CSV");
+            read_data_from_csv();
+            last_check_time = xTaskGetTickCount();
+        }
+
         int len = uart_read_bytes(ECHO_UART_PORT_NUM, data, (BUF_SIZE - 1), 20 / portTICK_PERIOD_MS);
         if (len > 0) {
             data[len] = '\0'; // Null-terminate the string
             handle_request((char *)data);
         }
+
     }
+
     // Free allocated memory
-    free(temperature);
-    free(pressure);
-    free(humidity);
-    free(sound);
-    free(light);
-    free(vibration);
+    free_all_memory();
 }
 
 void app_main(void) {
 
-    read_data_from_csv();
+    xTaskCreate(listen_to_request, "uart_echo_task", ECHO_TASK_STACK_SIZE, NULL, 10, NULL);
 
-    xTaskCreate(echo_task, "uart_echo_task", ECHO_TASK_STACK_SIZE, NULL, 10, NULL);
-
-    for (int i = 0; i < 3; i++) {
-        printf("{'low': %d, 'avg': %d, 'high': %d}, "
-            "{'low': %d, 'avg': %d, 'high': %d}, "
-            "{'low': %d, 'avg': %d, 'high': %d}, "
-            "{'low': %d, 'avg': %d, 'high': %d}, "
-            "{'low': %d, 'avg': %d, 'high': %d}, "
-            "{'low': %d, 'avg': %d, 'high': %d}\n",
-            temperature[i].low, temperature[i].avg, temperature[i].high,
-            pressure[i].low, pressure[i].avg, pressure[i].high,
-            humidity[i].low, humidity[i].avg, humidity[i].high,
-            sound[i].low, sound[i].avg, sound[i].high,
-            light[i].low, light[i].avg, light[i].high,
-            vibration[i].low, vibration[i].avg, vibration[i].high);
-    }
+    // For debugging
+    // for (int i = 0; i < 3; i++) {
+    //     printf("{'low': %d, 'avg': %d, 'high': %d}, "
+    //         "{'low': %d, 'avg': %d, 'high': %d}, "
+    //         "{'low': %d, 'avg': %d, 'high': %d}, "
+    //         "{'low': %d, 'avg': %d, 'high': %d}, "
+    //         "{'low': %d, 'avg': %d, 'high': %d}, "
+    //         "{'low': %d, 'avg': %d, 'high': %d}\n",
+    //         temperature[i].low, temperature[i].avg, temperature[i].high,
+    //         pressure[i].low, pressure[i].avg, pressure[i].high,
+    //         humidity[i].low, humidity[i].avg, humidity[i].high,
+    //         sound[i].low, sound[i].avg, sound[i].high,
+    //         light[i].low, light[i].avg, light[i].high,
+    //         vibration[i].low, vibration[i].avg, vibration[i].high);
+    // }
 
 }

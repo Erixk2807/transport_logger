@@ -53,7 +53,7 @@ static void add_padding(int number, int desired_length, char *result) {
 }
 
 static void insert_value_into_response(const char *command, Stats removedValue, char *response, size_t response_size) {
-    char value_str[32];
+    char response_str[32];
     char amended_value[6];
 
     // Get the appropriate padding for the command
@@ -63,19 +63,19 @@ static void insert_value_into_response(const char *command, Stats removedValue, 
     if (strcmp(command, "t1") == 0 || strcmp(command, "cpp") == 0 || strcmp(command, "sqil") == 0 ||
         strcmp(command, "emgl") == 0 || strcmp(command, "sbisl") == 0 || strcmp(command, "anesmacins") == 0) {
         add_padding(removedValue.low, padding, amended_value);
-        snprintf(value_str, sizeof(value_str), "%s", amended_value);
+        snprintf(response_str, sizeof(response_str), "%s", amended_value);
     } else if (strcmp(command, "t2") == 0 || strcmp(command, "ccocvp") == 0 || strcmp(command, "sqir") == 0 ||
                strcmp(command, "emgr") == 0 || strcmp(command, "sbisr") == 0 || strcmp(command, "anesmacet") == 0) {
         add_padding(removedValue.avg, padding, amended_value);
-        snprintf(value_str, sizeof(value_str), "%s", amended_value);
+        snprintf(response_str, sizeof(response_str), "%s", amended_value);
     } else if (strcmp(command, "t3") == 0 || strcmp(command, "ccomap") == 0 || strcmp(command, "bislsr") == 0 ||
                strcmp(command, "bisltp") == 0 || strcmp(command, "semgl") == 0 || strcmp(command, "anesmac") == 0) {
         add_padding(removedValue.high, padding, amended_value);
-        snprintf(value_str, sizeof(value_str), "%s", amended_value);
+        snprintf(response_str, sizeof(response_str), "%s", amended_value);
     }
 
     // Add a semicolon (;) at the start of the response if the response already has a command 
-    snprintf(response + strlen(response), response_size - strlen(response), "%s%s=%s", (strlen(response) == 0) ? "" : ";", command, value_str);
+    snprintf(response + strlen(response), response_size - strlen(response), "%s%s=%s", (strlen(response) == 0) ? "" : ";", command, response_str);
 }
 
 
@@ -100,6 +100,6 @@ void process_command(char *command, char *response, size_t response_size) {
         Stats removedValue = remove_first_value(&vibration, &dataSize);
         insert_value_into_response(command, removedValue, response, response_size);
     } else {
-        snprintf(response + strlen(response), response_size - strlen(response), "%s;", UNSUPPORTED_FEATURE);
+       snprintf(response + strlen(response), response_size - strlen(response), "%s%s=%s", (strlen(response) == 0) ? "" : ";", command, UNSUPPORTED_FEATURE);
     }
 }
